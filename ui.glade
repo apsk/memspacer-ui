@@ -27,7 +27,7 @@
               </packing>
             </child>
             <child>
-              <widget class="GtkToolButton" id="toolbutton2">
+              <widget class="GtkToolButton" id="addTB">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
                 <property name="use_action_appearance">False</property>
@@ -52,7 +52,7 @@
               </packing>
             </child>
             <child>
-              <widget class="GtkToolButton" id="toolbutton4">
+              <widget class="GtkToolButton" id="saveTB">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
                 <property name="use_action_appearance">False</property>
@@ -66,7 +66,7 @@
               </packing>
             </child>
             <child>
-              <widget class="GtkToolButton" id="toolbutton5">
+              <widget class="GtkToolButton" id="revertTB">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
                 <property name="use_action_appearance">False</property>
@@ -749,7 +749,7 @@
               </packing>
             </child>
             <child>
-              <widget class="GtkButton" id="button2">
+              <widget class="GtkButton" id="runB">
                 <property name="label" translatable="yes">Запуск</property>
                 <property name="visible">True</property>
                 <property name="can_focus">True</property>
@@ -763,7 +763,7 @@
               </packing>
             </child>
             <child>
-              <widget class="GtkButton" id="button1">
+              <widget class="GtkButton" id="exitB">
                 <property name="label" translatable="yes">Вихід</property>
                 <property name="visible">True</property>
                 <property name="can_focus">True</property>

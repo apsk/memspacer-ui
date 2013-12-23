@@ -1,18 +1,17 @@
-{-# LANGUAGE NoMonomorphismRestriction, ScopedTypeVariables, FlexibleInstances,
-             MultiParamTypeClasses,
-             GeneralizedNewtypeDeriving, StandaloneDeriving,
-             GADTs, TypeFamilies, FlexibleContexts, PackageImports,
-             LambdaCase, QuasiQuotes, TemplateHaskell, OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies, GADTs, FlexibleContexts, LambdaCase, RecordWildCards,
+             QuasiQuotes, TemplateHaskell, OverloadedStrings #-}
 
 module MemspacerUI where
 
 import Data.Char
+import Data.List (intercalate)
 import Data.Time
 import Data.Default
 import Data.IORef
 
 import Text.Read
 
+import Control.Monad.IO.Class (liftIO)
 import Control.Applicative
 import Control.Monad
 import Control.Lens
@@ -23,6 +22,8 @@ import Database.Persist.TH as P
 
 import Graphics.UI.Gtk as G
 import Graphics.UI.Gtk.Glade as G
+
+import System.Exit
 
 share [ mkPersist sqlSettings
       , mkMigrate "migrateAll" ]
@@ -58,6 +59,18 @@ makeLensesFor (map (\nm@(c:cs) -> ("config" ++ toUpper c : cs, nm))
 instance Default (ConfigGeneric b) where
   def = Config "default" 0 1 False False False False 0 0 1 3
 
+cmdArgs Config{..} = intercalate " "
+  [ if configMode == 0 then "-dm" else "-sm"
+  , "-n=" ++ show configBuffLen
+  , if configUseZRot then "-z" else ""
+  , if configUseColor then "-c" else ""
+  , if configUseSound then "-s" else ""
+  , if configUseSpaceBg then "-bg" else ""
+  , "-ic=" ++ show configIdleColor
+  , "-bc=" ++ show configBlinkColor
+  , "-bt=" ++ show configBlinkTime
+  , "-it=" ++ show configInterval ]
+
 activeProfile =
   selectFirst [GlobalKey ==. "active_profile"] [] >>= \case
     Just (Entity _ (Global _ profile)) -> return profile
@@ -67,55 +80,82 @@ activeProfile =
 
 configFor profile =
   selectFirst [ConfigProfile ==. profile] [] >>= \case
-    Just (Entity _ cfg) -> return cfg
+    Just (Entity key cfg) -> return (key, cfg)
     Nothing -> do
       let cfg :: ConfigGeneric backend
           cfg = def { configProfile = profile }
-      insert cfg
-      return cfg
+      (,) <$> insert cfg <*> pure cfg
 
-wire_ ui cast name signal action = do
-  widget <- xmlGetWidget ui cast name
-  on widget signal action
-
-wire ui cast name signal action = do
-  widget <- xmlGetWidget ui cast name
-  on widget signal (action widget)
+db = runSqlite "mspc.db"
 
 whenM mb action = mb >>= \b -> when b action
 
-wireUI ui configRef = do
-  let configure = modifyIORef configRef
-  wire ui castToRadioButton "defaultModeRB" toggled $ \b ->
-    whenM (toggleButtonGetActive b) $ configure (mode .~ 0)
-  wire ui castToRadioButton "shiftingModeRB" toggled $ \b ->
-    whenM (toggleButtonGetActive b) $ configure (mode .~ 1)
-  wire ui castToEntry "buffLenE" editableChanged $ \e -> do
-    val <- entryGetText e
-    configure (buffLen .~ maybe 1 id (readMaybe val))
-  wire ui castToCheckButton "zRotCB" toggled $ \b ->
-    toggleButtonGetActive b >>= \tog -> configure (useZRot .~ tog)
-  wire ui castToCheckButton "colorCB" toggled $ \b ->
-    toggleButtonGetActive b >>= \tog -> configure (useColor .~ tog)
-  wire ui castToCheckButton "soundCB" toggled $ \b ->
-    toggleButtonGetActive b >>= \tog -> configure (useSound .~ tog)
-  wire ui castToCheckButton "spaceCB" toggled $ \b ->
-    toggleButtonGetActive b >>= \tog -> configure (useSpaceBg .~ tog)
-  wire ui castToEntry "blinkTimeE" editableChanged $ \e -> do
-    entryGetText e >>= \val -> configure (blinkTime .~ maybe 1 id (readMaybe val))
-  wire ui castToEntry "intervalE" editableChanged $ \e -> do
-    entryGetText e >>= \val -> configure (interval .~ maybe 1 id (readMaybe val))
+toolButtonClicked = Signal $ \_ -> onToolButtonClicked
+
+wire widget signal action = on widget signal (action widget)
+
+widgets ui cast = mapM (xmlGetWidget ui cast)
+
+wireUI ui initialConfigKey initialConfig = do
+  [defaultModeRB, shiftingModeRB] <-
+    widgets ui castToRadioButton ["defaultModeRB", "shiftingModeRB"]
+  [buffLenE, blinkTimeE, intervalE] <-
+    widgets ui castToEntry ["buffLenE", "blinkTimeE", "intervalE"]
+  [zRotCB, colorCB, soundCB, spaceCB] <-
+    widgets ui castToCheckButton ["zRotCB", "colorCB", "soundCB", "spaceCB"]
+  [addTB, saveTB, revertTB] <- widgets ui castToToolButton ["addTB", "saveTB", "revertTB"]
+  [runB, exitB] <- widgets ui castToButton ["runB", "exitB"]
+  configKeyRef <- newIORef initialConfigKey
+  configRef    <- newIORef initialConfig
+  let getConfig :: Getting a (ConfigGeneric SqlBackend) a -> IO a
+      getConfig lens = (^. lens) <$> readIORef configRef
+  let setConfig = modifyIORef configRef
+  let resetUI = do
+        toggleButtonSetActive defaultModeRB  =<< (== 0) <$> getConfig mode
+        toggleButtonSetActive shiftingModeRB =<< (== 1) <$> getConfig mode
+        entrySetText buffLenE =<< show <$> getConfig buffLen
+        toggleButtonSetActive zRotCB  =<< getConfig useZRot
+        toggleButtonSetActive colorCB =<< getConfig useColor
+        toggleButtonSetActive soundCB =<< getConfig useSound
+        toggleButtonSetActive spaceCB =<< getConfig useSpaceBg
+        entrySetText blinkTimeE =<< show <$> getConfig blinkTime
+        entrySetText intervalE  =<< show <$> getConfig interval
+  resetUI
+  wire defaultModeRB toggled $
+    \b -> whenM (toggleButtonGetActive b) $ setConfig (mode .~ 0)
+  wire shiftingModeRB toggled $
+    \b -> whenM (toggleButtonGetActive b) $ setConfig (mode .~ 1)
+  wire buffLenE editableChanged $
+    \e -> entryGetText e >>= \val -> setConfig (buffLen .~ maybe 1 id (readMaybe val))
+  wire zRotCB toggled $
+    \b -> toggleButtonGetActive b >>= \tog -> setConfig (useZRot .~ tog)
+  wire colorCB toggled $
+    \b -> toggleButtonGetActive b >>= \tog -> setConfig (useColor .~ tog)
+  wire soundCB toggled $
+    \b -> toggleButtonGetActive b >>= \tog -> setConfig (useSound .~ tog)
+  wire spaceCB toggled $
+    \b -> toggleButtonGetActive b >>= \tog -> setConfig (useSpaceBg .~ tog)
+  wire blinkTimeE editableChanged $
+    \e -> entryGetText e >>= \val -> setConfig (blinkTime .~ maybe 1 id (readMaybe val))
+  wire intervalE editableChanged $
+    \e -> entryGetText e >>= \val -> setConfig (interval .~ maybe 1 id (readMaybe val))
+  wire saveTB toolButtonClicked $
+    \_ -> db =<< replace <$> readIORef configKeyRef <*> readIORef configRef
+  wire revertTB toolButtonClicked $
+    \_ -> (writeIORef configRef =<< snd <$> db (configFor =<< activeProfile)) >> resetUI
+  wire runB buttonActivated $
+    \_ -> putStrLn =<< cmdArgs <$> readIORef configRef
+  wire exitB buttonActivated $
+    \_ -> exitSuccess
 
 main = do
-  config <- runSqlite "mspc.db" $ do
+  (initialConfigKey, initialConfig) <- db $ do
     runMigration migrateAll
-    profile <- activeProfile
-    configFor profile
-  configRef <- newIORef config
+    configFor =<< activeProfile
   initGUI
   Just ui <- xmlNew "ui.glade"
   wnd <- xmlGetWidget ui castToWindow "wnd"
   onDestroy wnd mainQuit
-  wireUI ui configRef
+  wireUI ui initialConfigKey initialConfig
   widgetShowAll wnd
   mainGUI
