@@ -13,13 +13,19 @@
             <property name="visible">True</property>
             <property name="can_focus">False</property>
             <child>
-              <widget class="GtkMenuToolButton" id="toolbutton1">
-                <property name="width_request">80</property>
+              <widget class="GtkToolItem" id="profileTI">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
                 <property name="use_action_appearance">False</property>
-                <property name="label" translatable="yes">toolbutton1</property>
-                <property name="use_underline">True</property>
+                <child>
+                  <widget class="GtkComboBox" id="profileCBX">
+                    <property name="width_request">115</property>
+                    <property name="visible">True</property>
+                    <property name="can_focus">False</property>
+                    <property name="active">0</property>
+                    <property name="items" translatable="yes">default</property>
+                  </widget>
+                </child>
               </widget>
               <packing>
                 <property name="expand">False</property>
@@ -30,6 +36,7 @@
               <widget class="GtkToolButton" id="addTB">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
+                <property name="tooltip" translatable="yes">Додати профіль</property>
                 <property name="use_action_appearance">False</property>
                 <property name="label" translatable="yes">toolbutton2</property>
                 <property name="use_underline">True</property>
@@ -55,6 +62,7 @@
               <widget class="GtkToolButton" id="saveTB">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
+                <property name="tooltip" translatable="yes">Зберегти налаштування</property>
                 <property name="use_action_appearance">False</property>
                 <property name="label" translatable="yes">toolbutton4</property>
                 <property name="use_underline">True</property>
@@ -69,6 +77,7 @@
               <widget class="GtkToolButton" id="revertTB">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
+                <property name="tooltip" translatable="yes">Відмінити налаштування</property>
                 <property name="use_action_appearance">False</property>
                 <property name="label" translatable="yes">toolbutton5</property>
                 <property name="use_underline">True</property>
