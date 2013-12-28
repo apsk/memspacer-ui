@@ -1,7 +1,9 @@
-{-# LANGUAGE TypeFamilies, GADTs, FlexibleContexts, LambdaCase, RecordWildCards,
+{-# LANGUAGE TypeFamilies, GADTs, FlexibleContexts, LambdaCase, RecordWildCards, RankNTypes,
              ScopedTypeVariables, QuasiQuotes, TemplateHaskell, OverloadedStrings #-}
 
 module MemspacerUI where
+
+import BindUI
 
 import Data.Char
 import Data.List (intercalate, elemIndex)
@@ -25,6 +27,8 @@ import Graphics.UI.Gtk as G
 import Graphics.UI.Gtk.Glade as G
 
 import System.Exit
+
+(<:=) = writeIORef
 
 share [ mkPersist sqlSettings
       , mkMigrate "migrateAll" ]
@@ -93,45 +97,51 @@ whenM mb action = mb >>= \b -> when b action
 
 toolButtonClicked = Signal $ \_ -> onToolButtonClicked
 
-wire widget signal action = on widget signal (action widget)
+(~$) widget signal action = on widget signal (action widget)
 
-widgets ui cast = mapM (xmlGetWidget ui cast)
+data AddProfileDialog = AddProfileDialog
+  { addProfileW  :: Window
+  , okB, cancelB :: Button
+  , profileNameE :: Entry }
+
+data MainWindow = MainWindow
+  { mainW                             :: Window
+  , defaultModeRB, shiftingModeRB     :: RadioButton
+  , buffLenE, blinkTimeE, intervalE   :: Entry
+  , zRotCB, colorCB, soundCB, spaceCB :: CheckButton
+  , addTB, saveTB, revertTB           :: ToolButton
+  , runB, exitB                       :: Button
+  , profileCBX                        :: ComboBox }
 
 addProfileDialog = do
-  Just ui <- xmlNew "add-profile.glade"
-  window <- xmlGetWidget ui castToWindow "addProfileW"
-  [okB, cancelB] <- widgets ui castToButton ["okB", "cancelB"]
-  let close = widgetHideAll window >> mainQuit
-  wire okB buttonActivated $ \_ -> close
-  wire window deleteEvent $ \_ -> liftIO close >> return True
+  AddProfileDialog{..} <- $(bind ''AddProfileDialog "add-profile.glade")
+  let close = widgetHideAll addProfileW >> mainQuit
+  result <- newIORef Nothing
+  okB ~$ buttonActivated $ \_ -> do
+    profileName <- entryGetText profileNameE
+    result <:= Just profileName
+    close
+  cancelB ~$ buttonActivated $ \_ -> result <:= Nothing >> close
+  addProfileW ~$ deleteEvent $ \_ -> liftIO close >> return True
   return $ do
-    widgetShowAll window
+    widgetShowAll addProfileW
     mainGUI
+    readIORef result
 
-wireUI ui initialConfigKey initialConfig initialProfilesList = do
-  [defaultModeRB, shiftingModeRB] <-
-    widgets ui castToRadioButton ["defaultModeRB", "shiftingModeRB"]
-  [buffLenE, blinkTimeE, intervalE] <-
-    widgets ui castToEntry ["buffLenE", "blinkTimeE", "intervalE"]
-  [zRotCB, colorCB, soundCB, spaceCB] <-
-    widgets ui castToCheckButton ["zRotCB", "colorCB", "soundCB", "spaceCB"]
-  [addTB, saveTB, revertTB] <-
-    widgets ui castToToolButton ["addTB", "saveTB", "revertTB"]
-  [runB, exitB] <-
-    widgets ui castToButton ["runB", "exitB"]
-  [profileCBX] <- widgets ui castToComboBox ["profileCBX"]
-  configKeyRef <- newIORef initialConfigKey
-  configRef <- newIORef initialConfig
+memspacerUI initialConfigKey initialConfig initialProfilesList = do
+  MainWindow{..} <- $(bind ''MainWindow "main.glade")
+  configKey <- newIORef initialConfigKey
+  config <- newIORef initialConfig
   profilesRef <- newIORef initialProfilesList
   askProfileName <- addProfileDialog
   let getConfig :: Getting a (ConfigGeneric SqlBackend) a -> IO a
-      getConfig lens = (^. lens) <$> readIORef configRef
-  let setConfig = modifyIORef configRef
+      getConfig lens = (^. lens) <$> readIORef config
+  let setConfig = modifyIORef config
   let resetUI = do
         toggleButtonSetActive defaultModeRB =<< (== 0) <$> getConfig mode
         toggleButtonSetActive shiftingModeRB =<< (== 1) <$> getConfig mode
         entrySetText buffLenE =<< show <$> getConfig buffLen
-        toggleButtonSetActive zRotCB  =<< getConfig useZRot
+        toggleButtonSetActive zRotCB =<< getConfig useZRot
         toggleButtonSetActive colorCB =<< getConfig useColor
         toggleButtonSetActive soundCB =<< getConfig useSound
         toggleButtonSetActive spaceCB =<< getConfig useSpaceBg
@@ -142,35 +152,42 @@ wireUI ui initialConfigKey initialConfig initialProfilesList = do
         profile <- getConfig profile
         mapM_ (listStoreAppend cbItems) profiles
         comboBoxSetActive profileCBX $ fromJust $ elemIndex profile profiles
+  let switchProfile profileName = do
+        (cfgKey, cfg) <- db $ configFor profileName
+        configKey <:= cfgKey
+        config <:= cfg
+        resetUI
   resetUI
-  wire defaultModeRB toggled $
+  mainW `onDestroy` mainQuit
+  defaultModeRB ~$ toggled $
     \b -> whenM (toggleButtonGetActive b) $ setConfig (mode .~ 0)
-  wire shiftingModeRB toggled $
+  shiftingModeRB ~$ toggled $
     \b -> whenM (toggleButtonGetActive b) $ setConfig (mode .~ 1)
-  wire buffLenE editableChanged $
+  buffLenE ~$ editableChanged $
     \e -> entryGetText e >>= \val -> setConfig (buffLen .~ maybe 1 id (readMaybe val))
-  wire zRotCB toggled $
+  zRotCB ~$ toggled $
     \b -> toggleButtonGetActive b >>= \tog -> setConfig (useZRot .~ tog)
-  wire colorCB toggled $
+  colorCB ~$ toggled $
     \b -> toggleButtonGetActive b >>= \tog -> setConfig (useColor .~ tog)
-  wire soundCB toggled $
+  soundCB ~$ toggled $
     \b -> toggleButtonGetActive b >>= \tog -> setConfig (useSound .~ tog)
-  wire spaceCB toggled $
+  spaceCB ~$ toggled $
     \b -> toggleButtonGetActive b >>= \tog -> setConfig (useSpaceBg .~ tog)
-  wire blinkTimeE editableChanged $
+  blinkTimeE ~$ editableChanged $
     \e -> entryGetText e >>= \val -> setConfig (blinkTime .~ maybe 1 id (readMaybe val))
-  wire intervalE editableChanged $
+  intervalE ~$ editableChanged $
     \e -> entryGetText e >>= \val -> setConfig (interval .~ maybe 1 id (readMaybe val))
-  wire addTB toolButtonClicked $
-    \_ -> askProfileName
-  wire saveTB toolButtonClicked $
-    \_ -> db =<< replace <$> readIORef configKeyRef <*> readIORef configRef
-  wire revertTB toolButtonClicked $
-    \_ -> (writeIORef configRef =<< snd <$> db (configFor =<< activeProfile)) >> resetUI
-  wire runB buttonActivated $
-    \_ -> putStrLn =<< cmdArgs <$> readIORef configRef
-  wire exitB buttonActivated $
+  addTB ~$ toolButtonClicked $
+    \_ -> askProfileName >>= maybe (return ()) switchProfile
+  saveTB ~$ toolButtonClicked $
+    \_ -> db =<< replace <$> readIORef configKey <*> readIORef config
+  revertTB ~$ toolButtonClicked $
+    \_ -> ((config <:=) =<< snd <$> db (configFor =<< activeProfile)) >> resetUI
+  runB ~$ buttonActivated $
+    \_ -> putStrLn =<< cmdArgs <$> readIORef config
+  exitB ~$ buttonActivated $
     \_ -> exitSuccess
+  widgetShowAll mainW
 
 main = do
   (configKey, config, profiles) <- db $ do
@@ -179,10 +196,5 @@ main = do
     profiles <- map (configProfile . entityVal) <$> selectList [] []
     return (cfgKey, cfg, profiles)
   initGUI
-  Just ui <- xmlNew "ui.glade"
-  window <- xmlGetWidget ui castToWindow "wnd"
-  windowSetPosition window WinPosCenter
-  onDestroy window mainQuit
-  wireUI ui configKey config profiles
-  widgetShowAll window
+  memspacerUI configKey config profiles
   mainGUI
