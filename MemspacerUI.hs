@@ -1,5 +1,5 @@
-{-# LANGUAGE TypeFamilies, GADTs, FlexibleContexts, LambdaCase, RecordWildCards, RankNTypes,
-             ScopedTypeVariables, QuasiQuotes, TemplateHaskell, OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies, GADTs, FlexibleContexts, RecordWildCards,
+             QuasiQuotes, TemplateHaskell, OverloadedStrings, LambdaCase #-}
 
 module MemspacerUI where
 
@@ -55,15 +55,18 @@ share [ mkPersist sqlSettings
       deriving Show
   |]
 
+type SqlConfig = ConfigGeneric SqlBackend
+
 makeLensesFor (map (\nm@(c:cs) -> ("config" ++ toUpper c : cs, nm))
                  [ "profile", "mode", "buffLen", "useZRot"
                  , "useColor", "useSound", "useSpaceBg"
                  , "idleColor" , "blinkColor", "blinkTime", "interval" ])
   ''ConfigGeneric
 
-instance Default (ConfigGeneric b) where
+instance Default (ConfigGeneric backend) where
   def = Config "default" 0 1 False False False False 0 0 1 3
 
+cmdArgs :: ConfigGeneric backend -> String
 cmdArgs Config{..} = intercalate " "
   [ if configMode == 0 then "-dm" else "-sm"
   , "-n=" ++ show configBuffLen
@@ -93,8 +96,10 @@ configFor profile =
 
 db = runSqlite "mspc.db"
 
+whenM :: Monad m => m Bool -> m () -> m ()
 whenM mb action = mb >>= \b -> when b action
 
+toolButtonClicked :: Signal ToolButton (IO ())
 toolButtonClicked = Signal $ \_ -> onToolButtonClicked
 
 (~$) widget signal action = on widget signal (action widget)
@@ -113,6 +118,7 @@ data MainWindow = MainWindow
   , runB, exitB                       :: Button
   , profileCBX                        :: ComboBox }
 
+addProfileDialog :: IO (IO (Maybe String))
 addProfileDialog = do
   AddProfileDialog{..} <- $(bind ''AddProfileDialog "add-profile.glade")
   let close = widgetHideAll addProfileW >> mainQuit
@@ -128,6 +134,7 @@ addProfileDialog = do
     mainGUI
     readIORef result
 
+memspacerUI :: Key SqlConfig -> SqlConfig -> [String] -> IO ()
 memspacerUI initialConfigKey initialConfig initialProfilesList = do
   MainWindow{..} <- $(bind ''MainWindow "main.glade")
   configKey <- newIORef initialConfigKey

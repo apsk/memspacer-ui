@@ -1,10 +1,10 @@
-{-# LANGUAGE RankNTypes, LambdaCase, TemplateHaskell, QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module BindUI where
 
 import Graphics.UI.Gtk
 import Graphics.UI.Gtk.Glade
-import Data.String.Interpolate
+import Text.Printf
 import Language.Haskell.TH
 
 unQ = mkName . nameBase
@@ -25,7 +25,7 @@ castFor (ConT nm) = varE $ case nameBase nm of
   "ToolButton"  -> 'castToToolButton
   "Entry"       -> 'castToEntry
   "ComboBox"    -> 'castToComboBox
-  _             -> error [i|typeNameToCastName: unsupported typename `#{nm}'|]
+  _             -> error $ printf "typeNameToCastName: unsupported typename `%s'!" (show nm)
 
 bind tyNm file = do
   fields <- fmap recFields (reify tyNm)
