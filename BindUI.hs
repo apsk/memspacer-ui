@@ -25,6 +25,7 @@ castFor (ConT nm) = varE $ case nameBase nm of
   "ToolButton"  -> 'castToToolButton
   "Entry"       -> 'castToEntry
   "ComboBox"    -> 'castToComboBox
+  "TreeView"    -> 'castToTreeView
   _             -> error $ printf "typeNameToCastName: unsupported typename `%s'!" (show nm)
 
 bind tyNm file = do
