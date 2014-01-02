@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeFamilies, GADTs, FlexibleContexts, RecordWildCards, RankNTypes,
              QuasiQuotes, TemplateHaskell, OverloadedStrings, LambdaCase #-}
 
-module MemspacerUI where
+module Main where
 
 import BindUI
 
@@ -198,6 +198,7 @@ memspacerUI initialConfig initialProfilesList = do
       resetUI
   initUI
   resetUI
+  G.set mainW [windowTitle := "Memspacer UI"]
   mainW `onDestroy` mainQuit
   defaultModeRB ~$ toggled $
     \b -> whenM (toggleButtonGetActive b) $ setConfig (mode .~ 0)
